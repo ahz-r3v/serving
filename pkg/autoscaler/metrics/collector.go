@@ -80,6 +80,9 @@ type MetricClient interface {
 	// StableAndPanicRPS returns both the stable and the panic RPS
 	// for the given replica as of the given time.
 	StableAndPanicRPS(key types.NamespacedName, now time.Time) (float64, float64, error)
+
+	GetStableWindowAndIndexConcurrency(key types.NamespacedName, now time.Time) ([]float64, int, error)
+	GetStableWindowAndIndexRps(key types.NamespacedName, now time.Time) ([]float64, int, error)
 }
 
 // MetricCollector manages collection of metrics for many entities.
@@ -218,6 +221,37 @@ func (c *MetricCollector) StableAndPanicRPS(key types.NamespacedName, now time.T
 		nil
 }
 
+func (c *MetricCollector) GetStableWindowAndIndexConcurrency(key types.NamespacedName, now time.Time) ([]float64, int, error) {
+	c.collectionsMutex.RLock()
+	defer c.collectionsMutex.RUnlock()
+
+	collection, exists := c.collections[key]
+	if !exists {
+		return nil, 0, ErrNotCollecting
+	}
+
+	if collection.concurrencyBuckets.IsEmpty(now) && collection.currentMetric().Spec.ScrapeTarget != "" {
+		return nil, 0, ErrNoData
+	}
+	return collection.concurrencyBuckets.GetWindow(), collection.concurrencyBuckets.GetIndex(time.Now()), nil
+}
+
+func (c *MetricCollector) GetStableWindowAndIndexRps(key types.NamespacedName, now time.Time) ([]float64, int, error) {
+	c.collectionsMutex.RLock()
+	defer c.collectionsMutex.RUnlock()
+
+	collection, exists := c.collections[key]
+	if !exists {
+		return nil, 0, ErrNotCollecting
+	}
+
+	if collection.rpsBuckets.IsEmpty(now) && collection.currentMetric().Spec.ScrapeTarget != "" {
+		return nil, 0, ErrNoData
+	}
+	return collection.rpsBuckets.GetWindow(), collection.rpsBuckets.GetIndex(time.Now()), nil
+}
+
+
 type (
 	// windowAverager is the client side abstraction for various bucket types.
 	windowAverager interface {
@@ -225,6 +259,8 @@ type (
 		ResizeWindow(time.Duration)
 		WindowAverage(time.Time) float64
 		IsEmpty(time.Time) bool
+		GetWindow() []float64
+		GetIndex(time.Time) int
 	}
 
 	// collection represents the collection of metrics for one specific entity.
