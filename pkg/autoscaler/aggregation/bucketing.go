@@ -357,3 +357,19 @@ func (t *TimedFloat64Buckets) ResizeWindow(w time.Duration) {
 	t.buckets = newBuckets
 	t.windowTotal = newTotal
 }
+
+func (t *TimedFloat64Buckets) GetWindow() []float64 {
+	return t.buckets
+}
+
+func (t *WeightedFloat64Buckets) GetWindow() []float64 {
+	return t.buckets
+}
+
+func (t *TimedFloat64Buckets) GetIndex(time time.Time) int {
+	return t.timeToIndex(time)
+}
+
+func (t *WeightedFloat64Buckets) GetIndex(time time.Time) int {
+	return t.timeToIndex(time)
+}

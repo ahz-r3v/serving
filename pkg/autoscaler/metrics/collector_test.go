@@ -640,3 +640,50 @@ func TestMetricCollectorAggregate(t *testing.T) {
 		t.Errorf("Stable Concurrency = %f, want: %f", got, want)
 	}
 }
+
+func TestGetWindow(t *testing.T) {
+	window := 60 * time.Second  // Total window are 60 seconds
+	granularity := 5 * time.Second // Each bucket is 5 seconds
+
+	timedBuckets := aggregation.NewTimedFloat64Buckets(window, granularity)
+	weightedBuckets := aggregation.NewWeightedFloat64Buckets(window, granularity)
+
+	var averager windowAverager = timedBuckets
+
+	start := time.Unix(0, 0)
+	averager.Record(start.Add(0*time.Second), 10.0)
+	averager.Record(start.Add(5*time.Second), 15.0)
+
+	windowData := averager.GetWindow()
+
+	expectedBucketCount := int(window / granularity)
+	if len(windowData) != expectedBucketCount {
+		t.Errorf("expected %d buckets, got %d buckets", expectedBucketCount, len(windowData))
+	}
+
+	if windowData[0] != 10.0 {
+		t.Errorf("expected first bucket value 10.0, got %f", windowData[0])
+	}
+	if windowData[1] != 15.0 {
+		t.Errorf("expected second bucket value 15.0, got %f", windowData[1])
+	}
+	
+	averager = weightedBuckets
+
+	averager.Record(start.Add(7*time.Second), 100.0)
+	averager.Record(start.Add(13*time.Second), 12.0)
+
+	windowData = averager.GetWindow()
+
+	expectedBucketCount = int(window / granularity)
+	if len(windowData) != expectedBucketCount {
+		t.Errorf("expected %d buckets, got %d buckets", expectedBucketCount, len(windowData))
+	}
+
+	if windowData[1] != 100.0 {
+		t.Errorf("expected first bucket value 100.0, got %f", windowData[1])
+	}
+	if windowData[2] != 12.0 {
+		t.Errorf("expected second bucket value 12.0, got %f", windowData[2])
+	}
+}

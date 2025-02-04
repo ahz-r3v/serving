@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package scale_predictor;
+
+option go_package = ".;grpc_client";
+
+message PredictRequest {
+    string function_name = 1;
+    repeated int32 window = 2;
+    int32 index = 3;
+}
+
+message PredictResponse {
+    int32 result = 1;
+}
+
+service ScalePredictor {
+    rpc Predict (PredictRequest) returns (PredictResponse);
+}

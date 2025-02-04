@@ -28,6 +28,11 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"knative.dev/serving/pkg/autoscaler/grpc_client"
+	pb "knative.dev/serving/pkg/autoscaler/grpc_client"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -139,8 +144,16 @@ func main() {
 		statsScraperFactoryFunc(podLister, networkConfig.EnableMeshPodAddressability, networkConfig.MeshCompatibilityMode), logger)
 
 	// Set up scalers.
+	conn, err := grpc.NewClient("scale-predictor-service:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewScalePredictorClient(conn)
+
 	multiScaler := scaling.NewMultiScaler(ctx.Done(),
-		uniScalerFactoryFunc(podLister, collector), logger)
+		uniScalerFactoryFunc(podLister, collector, client), logger)
 
 	controllers := []*controller.Impl{
 		kpa.NewController(ctx, cmw, multiScaler),
@@ -231,7 +244,7 @@ func main() {
 }
 
 func uniScalerFactoryFunc(podLister corev1listers.PodLister,
-	metricClient asmetrics.MetricClient,
+	metricClient asmetrics.MetricClient, grpcClient grpc_client.ScalePredictorClient,
 ) scaling.UniScalerFactory {
 	return func(decider *scaling.Decider) (scaling.UniScaler, error) {
 		configName := decider.Labels[serving.ConfigurationLabelKey]
@@ -249,7 +262,7 @@ func uniScalerFactoryFunc(podLister corev1listers.PodLister,
 
 		podAccessor := resources.NewPodAccessor(podLister, decider.Namespace, revisionName)
 		return scaling.New(ctx, decider.Namespace, decider.Name, metricClient,
-			podAccessor, &decider.Spec), nil
+			podAccessor, &decider.Spec, grpcClient), nil
 	}
 }
 
