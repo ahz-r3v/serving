@@ -189,7 +189,13 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 
 	resp, err := a.grpcClient.Predict(ctx, req)
 	if err != nil {
-		logger.Errorw("gRPC Predict failed", zap.Error(err))
+		 if ctx.Err() == context.DeadlineExceeded {
+			logger.Error("gRPC Predict failed due to timeout", zap.Error(err))
+		} else if ctx.Err() == context.Canceled {
+			logger.Error("gRPC Predict canceled", zap.Error(err))
+		} else {
+			logger.Errorw("gRPC Predict failed", zap.Error(err))
+		}
 		return invalidSR
 	}
 
