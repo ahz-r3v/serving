@@ -178,7 +178,6 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		return invalidSR
 	}
 
-	// ** 使用 gRPC 预测 DesiredPodCount **
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -194,8 +193,11 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		return invalidSR
 	}
 
-	// gRPC 返回的 pod 目标值
 	desiredPodCount := int32(resp.Result)
+	if desiredPodCount < 0 {
+		logger.Errorw("Predictor runtime error.", "desiredPodCount", desiredPodCount)
+		return invalidSR
+	}
 
 	if debugEnabled {
 		desugared.Debug(
