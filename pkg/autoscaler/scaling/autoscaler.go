@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"log"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -147,6 +148,8 @@ func (a *autoscaler) Update(deciderSpec *DeciderSpec) {
 // Scale is not thread safe in regards to panic state, but it's thread safe in
 // regards to acquiring the decider spec.
 func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult {
+	log.Printf("[TEST] Scale called")
+
 	desugared := logger.Desugar()
 	debugEnabled := desugared.Core().Enabled(zapcore.DebugLevel)
 
@@ -186,15 +189,19 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		Window:       Float64ArrayToInt32Array(observedStableWindow),
 		Index:        int32(windowIndex),
 	}
+	log.Printf("[TEST] gRPC Request: %s, %v, %d", a.namespace, Float64ArrayToInt32Array(observedStableWindow), int32(windowIndex))
 
 	resp, err := a.grpcClient.Predict(ctx, req)
 	if err != nil {
 		 if ctx.Err() == context.DeadlineExceeded {
 			logger.Error("gRPC Predict failed due to timeout", zap.Error(err))
+			log.Printf("[TEST] gRPC Predict failed due to timeout")
 		} else if ctx.Err() == context.Canceled {
 			logger.Error("gRPC Predict canceled", zap.Error(err))
+			log.Printf("[TEST] gRPC Predict canceled")
 		} else {
 			logger.Errorw("gRPC Predict failed", zap.Error(err))
+			log.Printf("[TEST] gRPC Predict failed")
 		}
 		return invalidSR
 	}
@@ -202,6 +209,7 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	desiredPodCount := int32(resp.Result)
 	if desiredPodCount < 0 {
 		logger.Errorw("Predictor runtime error.", "desiredPodCount", desiredPodCount)
+		log.Printf("[TEST] Predictor runtime error. code=%d", desiredPodCount)
 		return invalidSR
 	}
 
@@ -212,6 +220,8 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	}
 
 	logger.Infof("Final Desired Pod Count: %d", desiredPodCount)
+	log.Printf("[TEST] Final Desired Pod Count: %d", desiredPodCount)
+	log.Printf("[TEST] Scale return.")
 
 	return ScaleResult{
 		DesiredPodCount:     desiredPodCount,
