@@ -182,7 +182,7 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	defer cancel()
 
 	req := &pb.PredictRequest{
-		FunctionName: "ScalePredict",
+		FunctionName: a.namespace,
 		Window:       Float64ArrayToInt32Array(observedStableWindow),
 		Index:        int32(windowIndex),
 	}
