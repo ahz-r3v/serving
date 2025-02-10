@@ -367,9 +367,9 @@ func (t *WeightedFloat64Buckets) GetWindow() []float64 {
 }
 
 func (t *TimedFloat64Buckets) GetIndex(time time.Time) int {
-	return t.timeToIndex(time)
+	return t.timeToIndex(time) % len(t.buckets)
 }
 
 func (t *WeightedFloat64Buckets) GetIndex(time time.Time) int {
-	return t.timeToIndex(time)
+	return t.timeToIndex(time) % len(t.buckets)
 }

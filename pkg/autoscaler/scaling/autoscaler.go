@@ -185,11 +185,11 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	defer cancel()
 
 	req := &pb.PredictRequest{
-		FunctionName: a.namespace,
+		FunctionName: a.namespace + a.revision,
 		Window:       Float64ArrayToInt32Array(observedStableWindow),
 		Index:        int32(windowIndex),
 	}
-	log.Printf("[TEST] gRPC Request: %s, %v, %d", a.namespace, Float64ArrayToInt32Array(observedStableWindow), int32(windowIndex))
+	log.Printf("[TEST] gRPC Request: %s, %v, %d", a.namespace + a.revision, Float64ArrayToInt32Array(observedStableWindow), int32(windowIndex))
 
 	resp, err := a.grpcClient.Predict(ctx, req)
 	if err != nil {
