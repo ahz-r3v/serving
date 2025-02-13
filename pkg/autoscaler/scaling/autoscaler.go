@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"math"
 	"time"
 	"log"
 
@@ -159,6 +160,8 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		logger.Errorw("Failed to get ready pod count via K8S Lister", zap.Error(err))
 		return invalidSR
 	}
+	// Use 1 if there are zero current pods.
+	readyPodsCount := math.Max(1, float64(originalReadyPodsCount))
 
 	metricKey := types.NamespacedName{Namespace: a.namespace, Name: a.revision}
 	// var observedStableValue, observedPanicValue float64
@@ -191,6 +194,18 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	}
 	log.Printf("[TEST] gRPC Request: %s, %v, %d", a.namespace + a.revision, Float64ArrayToInt32Array(observedStableWindow), int32(windowIndex))
 
+	// Make sure we don't get stuck with the same number of pods, if the scale up rate
+	// is too conservative and MaxScaleUp*RPC==RPC, so this permits us to grow at least by a single
+	// pod if we need to scale up.
+	// E.g. MSUR=1.1, OCC=3, RPC=2, TV=1 => OCC/TV=3, MSU=2.2 => DSPC=2, while we definitely, need
+	// 3 pods. See the unit test for this scenario in action.
+	maxScaleUp := math.Ceil(spec.MaxScaleUpRate * readyPodsCount)
+	// Same logic, opposite math applies here.
+	maxScaleDown := 0.
+	if spec.Reachable {
+		maxScaleDown = math.Floor(readyPodsCount / spec.MaxScaleDownRate)
+	}
+
 	resp, err := a.grpcClient.Predict(ctx, req)
 	if err != nil {
 		 if ctx.Err() == context.DeadlineExceeded {
@@ -206,11 +221,41 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		return invalidSR
 	}
 
-	desiredPodCount := int32(resp.Result)
-	if desiredPodCount < 0 {
-		logger.Errorw("Predictor runtime error.", "desiredPodCount", desiredPodCount)
-		log.Printf("[TEST] Predictor runtime error. code=%d", desiredPodCount)
+	rspc := int32(resp.Result)
+	if rspc < 0 {
+		logger.Errorw("Predictor runtime error.", "responsePodCount", rspc)
+		log.Printf("[TEST] Predictor runtime error. responsePodCount=%d", rspc)
 		return invalidSR
+	}
+
+	// We want to keep desired pod count in the  [maxScaleDown, maxScaleUp] range.
+	desiredPodCount := int32(math.Min(math.Max(float64(rspc), maxScaleDown), maxScaleUp))
+
+
+	//	If ActivationScale > 1, then adjust the desired pod counts
+	if a.deciderSpec.ActivationScale > 1 {
+		if rspc > 0 && a.deciderSpec.ActivationScale > desiredPodCount {
+			desiredPodCount = a.deciderSpec.ActivationScale
+		}
+	}
+
+	// Delay scale down decisions, if a ScaleDownDelay was specified.
+	// We only do this if there's a non-nil delayWindow because although a
+	// one-element delay window is _almost_ the same as no delay at all, it is
+	// not the same in the case where two Scale()s happen in the same time
+	// interval (because the largest will be picked rather than the most recent
+	// in that case).
+	if a.delayWindow != nil {
+		a.delayWindow.Record(now, desiredPodCount)
+		delayedPodCount := a.delayWindow.Current()
+		if delayedPodCount != desiredPodCount {
+			if debugEnabled {
+				desugared.Debug(
+					fmt.Sprintf("Delaying scale to %d, staying at %d",
+						desiredPodCount, delayedPodCount))
+			}
+			desiredPodCount = delayedPodCount
+		}
 	}
 
 	if debugEnabled {
@@ -222,6 +267,47 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	logger.Infof("Final Desired Pod Count: %d", desiredPodCount)
 	log.Printf("[TEST] Final Desired Pod Count: %d", desiredPodCount)
 	log.Printf("[TEST] Scale return.")
+
+	// Compute excess burst capacity
+	//
+	// the excess burst capacity is based on panic value, since we don't want to
+	// be making knee-jerk decisions about Activator in the request path.
+	// Negative EBC means that the deployment does not have enough capacity to serve
+	// the desired burst off hand.
+	// EBC = TotCapacity - Cur#ReqInFlight - TargetBurstCapacity
+	excessBCF := -1.
+	switch {
+	case spec.TargetBurstCapacity == 0:
+		excessBCF = 0
+	case spec.TargetBurstCapacity > 0:
+		totCap := float64(originalReadyPodsCount) * spec.TotalValue
+		excessBCF = math.Floor(totCap - spec.TargetBurstCapacity - float64(rspc))
+	}
+
+	if debugEnabled {
+		desugared.Debug(fmt.Sprintf("PodCount=%d Total1PodCapacity=%0.3f ObsStableValue=%0.3f ObsPanicValue=%0.3f TargetBC=%0.3f ExcessBC=%0.3f",
+			originalReadyPodsCount, spec.TotalValue, float64(rspc),
+			float64(rspc), spec.TargetBurstCapacity, excessBCF))
+	}
+
+	switch spec.ScalingMetric {
+	case autoscaling.RPS:
+		pkgmetrics.RecordBatch(a.reporterCtx,
+			excessBurstCapacityM.M(excessBCF),
+			desiredPodCountM.M(int64(desiredPodCount)),
+			stableRPSM.M(float64(rspc)),
+			panicRPSM.M(float64(rspc)),
+			targetRPSM.M(spec.TargetValue),
+		)
+	default:
+		pkgmetrics.RecordBatch(a.reporterCtx,
+			excessBurstCapacityM.M(excessBCF),
+			desiredPodCountM.M(int64(desiredPodCount)),
+			stableRequestConcurrencyM.M(float64(rspc)),
+			panicRequestConcurrencyM.M(float64(rspc)),
+			targetRequestConcurrencyM.M(spec.TargetValue),
+		)
+	}
 
 	return ScaleResult{
 		DesiredPodCount:     desiredPodCount,
