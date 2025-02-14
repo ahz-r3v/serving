@@ -23,7 +23,6 @@ import (
 	"sync"
 	"math"
 	"time"
-	"log"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -149,8 +148,6 @@ func (a *autoscaler) Update(deciderSpec *DeciderSpec) {
 // Scale is not thread safe in regards to panic state, but it's thread safe in
 // regards to acquiring the decider spec.
 func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult {
-	log.Printf("[TEST] Scale called")
-
 	desugared := logger.Desugar()
 	debugEnabled := desugared.Core().Enabled(zapcore.DebugLevel)
 
@@ -164,6 +161,8 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	readyPodsCount := math.Max(1, float64(originalReadyPodsCount))
 
 	metricKey := types.NamespacedName{Namespace: a.namespace, Name: a.revision}
+
+	metricName := spec.ScalingMetric
 	// var observedStableValue, observedPanicValue float64
 	var observedStableWindow []float64
 	var windowIndex int
@@ -188,11 +187,16 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	defer cancel()
 
 	req := &pb.PredictRequest{
-		FunctionName: a.namespace + a.revision,
+		FunctionName: a.namespace + "/" + a.revision,
 		Window:       Float64ArrayToInt32Array(observedStableWindow),
 		Index:        int32(windowIndex),
 	}
-	log.Printf("[TEST] gRPC Request: %s, %v, %d", a.namespace + a.revision, Float64ArrayToInt32Array(observedStableWindow), int32(windowIndex))
+
+	if debugEnabled {
+		desugared.Debug(
+			fmt.Sprintf("[TEST] gRPC Request: %s, %v, %d", a.namespace + "/" + 
+			a.revision, Float64ArrayToInt32Array(observedStableWindow), int32(windowIndex)))
+	}
 
 	// Make sure we don't get stuck with the same number of pods, if the scale up rate
 	// is too conservative and MaxScaleUp*RPC==RPC, so this permits us to grow at least by a single
@@ -209,27 +213,37 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	resp, err := a.grpcClient.Predict(ctx, req)
 	if err != nil {
 		 if ctx.Err() == context.DeadlineExceeded {
-			logger.Error("gRPC Predict failed due to timeout", zap.Error(err))
-			log.Printf("[TEST] gRPC Predict failed due to timeout")
+			logger.Errorw("gRPC Predict failed due to timeout", zap.Error(err))
 		} else if ctx.Err() == context.Canceled {
-			logger.Error("gRPC Predict canceled", zap.Error(err))
-			log.Printf("[TEST] gRPC Predict canceled")
+			logger.Errorw("gRPC Predict canceled", zap.Error(err))
 		} else {
 			logger.Errorw("gRPC Predict failed", zap.Error(err))
-			log.Printf("[TEST] gRPC Predict failed")
 		}
+		return invalidSR
+	} else {
+		if debugEnabled {
+			desugared.Debug(
+				fmt.Sprintf("[TEST] gRPC Response: %d", resp.Result))
+		}
+	}
+
+	rspc := math.Ceil(float64(resp.Result) / spec.TargetValue)
+	if rspc < 0 {
+		logger.Errorw("Predictor runtime error.", "responsePodCount", rspc)
 		return invalidSR
 	}
 
-	rspc := int32(resp.Result)
-	if rspc < 0 {
-		logger.Errorw("Predictor runtime error.", "responsePodCount", rspc)
-		log.Printf("[TEST] Predictor runtime error. responsePodCount=%d", rspc)
-		return invalidSR
+
+	if debugEnabled {
+		desugared.Debug(
+			fmt.Sprintf("For metric %s observed stable window: stable = %v; window index = %d; target = %0.3f "+
+				"Desired StablePodCount = %0.0f, ReadyEndpointCount = %d, MaxScaleUp = %0.0f, MaxScaleDown = %0.0f",
+				metricName, observedStableWindow, windowIndex, spec.TargetValue,
+				rspc, originalReadyPodsCount, maxScaleUp, maxScaleDown))
 	}
 
 	// We want to keep desired pod count in the  [maxScaleDown, maxScaleUp] range.
-	desiredPodCount := int32(math.Min(math.Max(float64(rspc), maxScaleDown), maxScaleUp))
+	desiredPodCount := int32(math.Min(math.Max(rspc, maxScaleDown), maxScaleUp))
 
 
 	//	If ActivationScale > 1, then adjust the desired pod counts
@@ -237,6 +251,12 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		if rspc > 0 && a.deciderSpec.ActivationScale > desiredPodCount {
 			desiredPodCount = a.deciderSpec.ActivationScale
 		}
+	}
+
+	if debugEnabled {
+		desugared.Debug(
+			fmt.Sprintf("GRPC Predict: DesiredPodCount = %d, ReadyPods = %d, ObservedStableWindow = %v",
+				desiredPodCount, originalReadyPodsCount, observedStableWindow))
 	}
 
 	// Delay scale down decisions, if a ScaleDownDelay was specified.
@@ -258,16 +278,6 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		}
 	}
 
-	if debugEnabled {
-		desugared.Debug(
-			fmt.Sprintf("GRPC Predict: DesiredPodCount = %d, ReadyPods = %d, ObservedStableWindow = %v",
-				desiredPodCount, originalReadyPodsCount, observedStableWindow))
-	}
-
-	logger.Infof("Final Desired Pod Count: %d", desiredPodCount)
-	log.Printf("[TEST] Final Desired Pod Count: %d", desiredPodCount)
-	log.Printf("[TEST] Scale return.")
-
 	// Compute excess burst capacity
 	//
 	// the excess burst capacity is based on panic value, since we don't want to
@@ -285,9 +295,9 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	}
 
 	if debugEnabled {
-		desugared.Debug(fmt.Sprintf("PodCount=%d Total1PodCapacity=%0.3f ObsStableValue=%0.3f ObsPanicValue=%0.3f TargetBC=%0.3f ExcessBC=%0.3f",
-			originalReadyPodsCount, spec.TotalValue, float64(rspc),
-			float64(rspc), spec.TargetBurstCapacity, excessBCF))
+		desugared.Debug(fmt.Sprintf("PodCount=%d Total1PodCapacity=%0.3f ObsStableWindow=%v TargetBC=%0.3f ExcessBC=%0.3f",
+			originalReadyPodsCount, spec.TotalValue, observedStableWindow,
+			spec.TargetBurstCapacity, excessBCF))
 	}
 
 	switch spec.ScalingMetric {
@@ -308,6 +318,8 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 			targetRequestConcurrencyM.M(spec.TargetValue),
 		)
 	}
+
+	logger.Debugf("Final Desired Pod Count: %d", desiredPodCount)
 
 	return ScaleResult{
 		DesiredPodCount:     desiredPodCount,
