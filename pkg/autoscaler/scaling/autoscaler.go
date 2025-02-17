@@ -188,7 +188,7 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 
 	req := &pb.PredictRequest{
 		FunctionName: a.namespace + "/" + a.revision,
-		Window:       Float64ArrayToInt32Array(observedStableWindow),
+		Window:       observedStableWindow,
 		Index:        int32(windowIndex),
 	}
 
@@ -227,7 +227,7 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 		}
 	}
 
-	rspc := math.Ceil(float64(resp.Result) / spec.TargetValue)
+	rspc := math.Ceil(resp.Result / spec.TargetValue)
 	if rspc < 0 {
 		logger.Errorw("Predictor runtime error.", "responsePodCount", rspc)
 		return invalidSR
