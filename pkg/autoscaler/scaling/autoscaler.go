@@ -323,7 +323,7 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 
 	return ScaleResult{
 		DesiredPodCount:     desiredPodCount,
-		ExcessBurstCapacity: desiredPodCount, 
+		ExcessBurstCapacity: int32(excessBCF), 
 		ScaleValid:          true,
 	}
 }
