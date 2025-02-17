@@ -223,7 +223,7 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	} else {
 		if debugEnabled {
 			desugared.Debug(
-				fmt.Sprintf("[TEST] gRPC Response: %d", resp.Result))
+				fmt.Sprintf("[TEST] gRPC Response: %0.3f", resp.Result))
 		}
 	}
 
