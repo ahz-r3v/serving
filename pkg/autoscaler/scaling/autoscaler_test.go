@@ -734,6 +734,10 @@ func (mc *metricClient) GetStableWindowAndIndexRps(key types.NamespacedName, now
 	return []float64{0.0}, 0, nil
 }
 
+func (mc *metricClient) GetUpdatedWindowAndIndex(key types.NamespacedName, now time.Time) ([]float64, int, error) {
+	return []float64{0.0}, 0, nil
+}
+
 func BenchmarkAutoscaler(b *testing.B) {
 	metrics := &metricClient{StableConcurrency: 50.0, PanicConcurrency: 10}
 	a := newTestAutoscalerNoPC(10, 101, metrics)

@@ -82,7 +82,10 @@ type MetricClient interface {
 	StableAndPanicRPS(key types.NamespacedName, now time.Time) (float64, float64, error)
 
 	GetStableWindowAndIndexConcurrency(key types.NamespacedName, now time.Time) ([]float64, int, error)
+
 	GetStableWindowAndIndexRps(key types.NamespacedName, now time.Time) ([]float64, int, error)
+
+	GetUpdatedWindowAndIndex(key types.NamespacedName, now time.Time) ([]float64, int, error)
 }
 
 // MetricCollector manages collection of metrics for many entities.
@@ -251,6 +254,21 @@ func (c *MetricCollector) GetStableWindowAndIndexRps(key types.NamespacedName, n
 	return collection.rpsBuckets.GetWindow(), collection.rpsBuckets.GetIndex(time.Now()), nil
 }
 
+func (c *MetricCollector) GetUpdatedWindowAndIndex(key types.NamespacedName, now time.Time) ([]float64, int, error) {
+	c.collectionsMutex.RLock()
+	defer c.collectionsMutex.RUnlock()
+
+	collection, exists := c.collections[key]
+	if !exists {
+		return nil, 0, ErrNotCollecting
+	}
+
+	if collection.concurrencyBuckets.IsEmpty(now) && collection.currentMetric().Spec.ScrapeTarget != "" {
+		return nil, 0, ErrNoData
+	}
+	return collection.concurrencyBuckets.GetUpdatedWindow(now), collection.concurrencyBuckets.GetIndex(time.Now()), nil
+}
+
 
 type (
 	// windowAverager is the client side abstraction for various bucket types.
@@ -261,6 +279,7 @@ type (
 		IsEmpty(time.Time) bool
 		GetWindow() []float64
 		GetIndex(time.Time) int
+		GetUpdatedWindow(time.Time) []float64
 	}
 
 	// collection represents the collection of metrics for one specific entity.

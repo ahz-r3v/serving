@@ -167,12 +167,13 @@ func (a *autoscaler) Scale(logger *zap.SugaredLogger, now time.Time) ScaleResult
 	var observedStableWindow []float64
 	var windowIndex int
 
-	switch spec.ScalingMetric {
-	case autoscaling.RPS:
-		observedStableWindow, windowIndex, err = a.metricClient.GetStableWindowAndIndexRps(metricKey, now)
-	default:
-		observedStableWindow, windowIndex, err = a.metricClient.GetStableWindowAndIndexConcurrency(metricKey, now)
-	}
+	// switch spec.ScalingMetric {
+	// case autoscaling.RPS:
+	// 	observedStableWindow, windowIndex, err = a.metricClient.GetStableWindowAndIndexRps(metricKey, now)
+	// default:
+	// 	observedStableWindow, windowIndex, err = a.metricClient.GetStableWindowAndIndexConcurrency(metricKey, now)
+	// }
+	observedStableWindow, windowIndex, err = a.metricClient.GetUpdatedWindowAndIndex(metricKey, now)
 
 	if err != nil {
 		if errors.Is(err, metrics.ErrNoData) {

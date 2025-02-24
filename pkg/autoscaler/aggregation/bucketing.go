@@ -230,6 +230,27 @@ func (t *TimedFloat64Buckets) WindowAverage(now time.Time) float64 {
 	}
 }
 
+func (t *TimedFloat64Buckets) GetUpdatedWindow(now time.Time) []float64 {
+	now = now.Truncate(t.granularity)
+	t.bucketsMutex.RLock()
+	defer t.bucketsMutex.RUnlock()
+	switch d := now.Sub(t.lastWrite); {
+	case d <= 0:
+		return t.buckets
+	case d < t.window:
+		stIdx := t.timeToIndex(t.lastWrite)
+		eIdx := t.timeToIndex(now)
+		ret := make([]float64, len(t.buckets))
+		copy(ret, t.buckets)
+		for i := stIdx + 1; i <= eIdx; i++ {
+			ret[i%len(t.buckets)] = 0
+		}
+		return ret
+	default: // Nothing for more than a window time, just 0.
+		return make([]float64, len(t.buckets))
+	}
+}
+
 // timeToIndex converts time to an integer that can be used for modulo
 // operations to find the index in the bucket list.
 // bucketMutex needs to be held.
