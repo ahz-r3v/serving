@@ -87,7 +87,7 @@ func main() {
 	log.Printf("Registering %d informers", len(injection.Default.GetInformers()))
 	log.Printf("Registering %d filtered informers", len(injection.Default.GetFilteredInformers()))
 	log.Printf("Registering %d controllers", controllerNum)
-	log.Printf("[TEST] PREDICTIVE SCALER TEST VERSION v0.1.2")
+	log.Printf("[TEST] PREDICTIVE SCALER VERSION v0.1.3: Updated Window Version")
 
 	// Adjust our client's rate limits based on the number of controller's we are running.
 	cfg.QPS = controllerNum * rest.DefaultQPS
