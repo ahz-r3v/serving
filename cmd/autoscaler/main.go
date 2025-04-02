@@ -90,8 +90,8 @@ func main() {
 	log.Printf("[TEST] PREDICTIVE SCALER VERSION v0.1.4: K8S Load Balancing")
 
 	// Adjust our client's rate limits based on the number of controller's we are running.
-	cfg.QPS = controllerNum * rest.DefaultQPS
-	cfg.Burst = controllerNum * rest.DefaultBurst
+	// cfg.QPS = controllerNum * rest.DefaultQPS
+	// cfg.Burst = controllerNum * rest.DefaultBurst
 	ctx = filteredinformerfactory.WithSelectors(ctx, serving.RevisionUID)
 	ctx, informers := injection.Default.SetupInformers(ctx, cfg)
 
