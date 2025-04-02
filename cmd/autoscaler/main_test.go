@@ -109,5 +109,5 @@ func TestUniScalerFactoryFunc(t *testing.T) {
 }
 
 func testUniScalerFactory() func(decider *scaling.Decider) (scaling.UniScaler, error) {
-	return uniScalerFactoryFunc(kubeInformer.Core().V1().Pods().Lister(), nil)
+	return uniScalerFactoryFunc(kubeInformer.Core().V1().Pods().Lister(), nil, nil)
 }

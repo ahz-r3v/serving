@@ -77,7 +77,7 @@ func TestAutoscalerScaleDownDelay(t *testing.T) {
 		PanicThreshold:   100,
 		ScaleDownDelay:   5 * time.Minute,
 	}
-	as := New(context.Background(), testNamespace, testRevision, metrics, pc, spec)
+	as := New(context.Background(), testNamespace, testRevision, metrics, pc, spec, nil)
 
 	now := time.Time{}
 
@@ -138,7 +138,7 @@ func TestAutoscalerScaleDownDelayZero(t *testing.T) {
 		PanicThreshold:   100,
 		ScaleDownDelay:   0,
 	}
-	as := New(context.Background(), testNamespace, testRevision, metrics, pc, spec)
+	as := New(context.Background(), testNamespace, testRevision, metrics, pc, spec, nil)
 
 	now := time.Time{}
 
@@ -597,7 +597,7 @@ func newTestAutoscalerWithScalingMetric(targetValue, targetBurstCapacity float64
 		pc.readyCount = 2
 	}
 	ctx := servingmetrics.RevisionContext(testNamespace, "testSvc", "testConfig", testRevision)
-	return newAutoscaler(ctx, testNamespace, testRevision, metrics, pc, deciderSpec, nil), pc
+	return newAutoscaler(ctx, testNamespace, testRevision, metrics, pc, deciderSpec, nil, nil), pc
 }
 
 // approxEquateInt32 equates int32s with given path with ±-1 tolerance.
@@ -635,7 +635,7 @@ func TestStartInPanicMode(t *testing.T) {
 	pc := &fakePodCounter{}
 	for i := 0; i < 2; i++ {
 		pc.readyCount = i
-		a := newAutoscaler(context.Background(), testNamespace, testRevision, metrics, pc, deciderSpec, nil)
+		a := newAutoscaler(context.Background(), testNamespace, testRevision, metrics, pc, deciderSpec, nil, nil)
 		if !a.panicTime.IsZero() {
 			t.Errorf("Create at scale %d had panic mode on", i)
 		}
@@ -646,7 +646,7 @@ func TestStartInPanicMode(t *testing.T) {
 
 	// Now start with 2 and make sure we're in panic mode.
 	pc.readyCount = 2
-	a := newAutoscaler(context.Background(), testNamespace, testRevision, metrics, pc, deciderSpec, nil)
+	a := newAutoscaler(context.Background(), testNamespace, testRevision, metrics, pc, deciderSpec, nil, nil)
 	if a.panicTime.IsZero() {
 		t.Error("Create at scale 2 had panic mode off")
 	}
@@ -668,7 +668,7 @@ func TestNewFail(t *testing.T) {
 	}
 
 	pc := fakePodCounter{err: errors.New("starlight")}
-	a := newAutoscaler(context.Background(), testNamespace, testRevision, metrics, pc, deciderSpec, nil)
+	a := newAutoscaler(context.Background(), testNamespace, testRevision, metrics, pc, deciderSpec, nil, nil)
 	if got, want := int(a.maxPanicPods), 0; got != want {
 		t.Errorf("maxPanicPods = %d, want: 0", got)
 	}
@@ -724,6 +724,18 @@ func (mc *metricClient) StableAndPanicRPS(key types.NamespacedName, now time.Tim
 		err = mc.ErrF(key, now)
 	}
 	return mc.StableRPS, mc.PanicRPS, err
+}
+
+func (mc *metricClient) GetStableWindowAndIndexConcurrency(key types.NamespacedName, now time.Time) ([]float64, int, error) {
+	return []float64{0.0}, 0, nil
+}
+
+func (mc *metricClient) GetStableWindowAndIndexRps(key types.NamespacedName, now time.Time) ([]float64, int, error) {
+	return []float64{0.0}, 0, nil
+}
+
+func (mc *metricClient) GetUpdatedWindowAndIndex(key types.NamespacedName, now time.Time) ([]float64, int, error) {
+	return []float64{0.0}, 0, nil
 }
 
 func BenchmarkAutoscaler(b *testing.B) {
