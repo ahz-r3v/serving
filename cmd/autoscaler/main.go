@@ -87,7 +87,7 @@ func main() {
 	log.Printf("Registering %d informers", len(injection.Default.GetInformers()))
 	log.Printf("Registering %d filtered informers", len(injection.Default.GetFilteredInformers()))
 	log.Printf("Registering %d controllers", controllerNum)
-	log.Printf("[TEST] PREDICTIVE SCALER VERSION v0.1.4: K8S Load Balancing")
+	log.Printf("[TEST] PREDICTIVE SCALER VERSION v0.1.6: Set outdated window buckets to -1")
 
 	// Adjust our client's rate limits based on the number of controller's we are running.
 	// cfg.QPS = controllerNum * rest.DefaultQPS

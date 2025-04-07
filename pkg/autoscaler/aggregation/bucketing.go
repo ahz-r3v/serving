@@ -234,20 +234,37 @@ func (t *TimedFloat64Buckets) GetUpdatedWindow(now time.Time) []float64 {
 	now = now.Truncate(t.granularity)
 	t.bucketsMutex.RLock()
 	defer t.bucketsMutex.RUnlock()
+
+	ret := make([]float64, len(t.buckets))
+	copy(ret, t.buckets)
+
+	if !t.firstWrite.IsZero() && float64(t.lastWrite.Sub(t.firstWrite)/t.granularity)+1 < float64(len(t.buckets)) {
+		// If there are values before firstWrite, then we need to
+		// mark them as outdated.
+		// We need to do this only if the firstWrite is not zero.
+		stIdx := t.timeToIndex(t.firstWrite)
+		eIdx := t.timeToIndex(t.lastWrite)
+		for i := eIdx + 1; i < stIdx; i++ {
+			ret[i%len(t.buckets)] = -1 // -1 is used to mark outdated.
+		}
+	}
+
 	switch d := now.Sub(t.lastWrite); {
 	case d <= 0:
-		return t.buckets
+		return ret
 	case d < t.window:
 		stIdx := t.timeToIndex(t.lastWrite)
 		eIdx := t.timeToIndex(now)
-		ret := make([]float64, len(t.buckets))
 		copy(ret, t.buckets)
 		for i := stIdx + 1; i <= eIdx; i++ {
-			ret[i%len(t.buckets)] = 0
+			ret[i%len(t.buckets)] = -1	// -1 is used to mark outdated.
 		}
 		return ret
-	default: // Nothing for more than a window time, just 0.
-		return make([]float64, len(t.buckets))
+	default: // Nothing for more than a window time, just 0. -1 is used to mark outdated.
+		for i := range ret {
+			ret[i] = -1
+		}
+		return ret
 	}
 }
 
