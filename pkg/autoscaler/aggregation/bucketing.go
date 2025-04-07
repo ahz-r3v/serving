@@ -242,9 +242,9 @@ func (t *TimedFloat64Buckets) GetUpdatedWindow(now time.Time) []float64 {
 		// If there are values before firstWrite, then we need to
 		// mark them as outdated.
 		// We need to do this only if the firstWrite is not zero.
-		stIdx := t.timeToIndex(t.firstWrite)
+		stIdxLoopNext := t.timeToIndex(t.firstWrite) + len(t.buckets)
 		eIdx := t.timeToIndex(t.lastWrite)
-		for i := eIdx + 1; i < stIdx; i++ {
+		for i := eIdx + 1; i < stIdxLoopNext; i++ {
 			ret[i%len(t.buckets)] = -1 // -1 is used to mark outdated.
 		}
 	}
